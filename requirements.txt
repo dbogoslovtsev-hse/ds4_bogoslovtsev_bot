@@ -1,0 +1,4 @@
+pandas~=1.1.4
+pyTelegramBotAPI~=3.7.3
+pip>=20.2.4
+Vedis~=0.7.1
