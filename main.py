@@ -4,6 +4,7 @@ import telebot
 import pandas as pd
 from tabulate import tabulate
 import dbworker
+from fuzzywuzzy import fuzz
 
 # инициируем бота
 bot = telebot.TeleBot(config.token)
@@ -93,15 +94,31 @@ def enter_company_or_rating(message):
     df = upload_stats()
 
     if company_or_rating == 'company':
-        for_sending = df[df['company_name'] == message.text.strip()]
 
-        if len(for_sending) == 1:
+        # добавил нечеткую логику поиска компании
+        fuzzy_matches = {}
+        company_names = df['company_name']
+
+        for i in range(len(company_names)):
+            partial_ratio = fuzz.ratio(company_names.iloc[i], message.text.strip())
+            fuzzy_matches[i] = (partial_ratio, i)
+
+        x = sorted(fuzzy_matches, key=lambda k: fuzzy_matches[k][0], reverse=True)
+
+        # находим раздел с максимальной похожестью
+        confidence, selection = fuzzy_matches[x[0]][0], x[0]
+
+        # если вероятность больше 50%, то выводим результат
+        if confidence >= 50:
+
+            for_sending = df[df['company_name'] == company_names[selection]]
             str_message = ''
             header_names = for_sending.columns
 
             for i in range(len(header_names)):
                 str_message += header_names[i] + ' - ' + str(for_sending.iloc[0, i]) + '\n'
 
+            bot.send_message(message.chat.id, "Вероятность совпадения {} процентов".format(confidence))
             bot.send_message(message.chat.id, str_message)
 
         else:
@@ -143,9 +160,9 @@ def cmd_commands(message):
                                       "/start - начинаем работу заново\n"
                                       "/info - подробная информация о моих возможностях\n"
                                       "/commands - перечисление полного списка команд\n"
-                                      "/listcities - перечисление списка ТОП-20 городов\n"
-                                      "/listcountries - перечисление списка ТОП-20 стран\n"
-                                      "/listhabs - перечисление списка ТОП-20 хабов\n"
+                                      "/listcities - перечисление списка ТОП-20 городов по количеству компаний\n"
+                                      "/listcountries - перечисление списка ТОП-20 стран по количеству компаний\n"
+                                      "/listhabs - перечисление списка ТОП-20 хабов по количеству компаний\n"
                                       "/listfields - перечисление списка полей\n"
                                       "/topraiting - список ТОП-20 компаний по рейтингу\n"
                                       "/topposts - список ТОП-20 компаний по количеству публикаций\n"
@@ -169,37 +186,45 @@ def cmd_info(message):
                                       "Набери /reset, чтобы сбросить выбранные параметры"
                      )
 
+# вспомогательная функция для формирования сообщения
+def create_message(for_sending):
+
+    keys = for_sending.keys().to_list()
+    values = for_sending.to_list()
+    str_message = ''
+
+    for i in range(len(for_sending)):
+        str_message += str(i + 1) + '. ' + keys[i] + ' - ' + str(values[i]) + '\n'
+
+    return str_message
+
+# вспомогательная функция для формирования сообщения (вариант 2)
+def create_message_2(fields_list, sort_by):
+
+    df = upload_stats()
+    str_message = ''
+
+    for_sending = df[fields_list].sort_values(by=sort_by, ascending=False).head(20)
+    for i in range(len(for_sending)):
+        str_message += str((i + 1)) + '. ' + for_sending.iloc[i, 0] + ' - ' + str(for_sending.iloc[i, 1]) + '\n'
+
+    return str_message
 
 # обработчик команды listcities: вывод списка ТОП-20 городов
 @bot.message_handler(commands=["listcities"])
 def cmd_listcities(message):
 
     df = upload_stats()
-
-    for_sending = df['company_city'].value_counts().head(20)
-    keys = for_sending.keys().to_list()
-    values = for_sending.to_list()
-    str_message = ''
-
-    for i in range(len(for_sending)):
-        str_message += str(i + 1) + '. ' + keys[i] + ' - ' + str(values[i]) + '\n'
+    str_message = create_message(df['company_city'].value_counts().head(20))
 
     bot.send_message(message.chat.id, str_message)
-
 
 # обработчик команды listcountries: вывод списка ТОП-20 стран
 @bot.message_handler(commands=["listcountries"])
 def cmd_listcountries(message):
 
     df = upload_stats()
-
-    for_sending = df['company_country'].value_counts().head(20)
-    keys = for_sending.keys().to_list()
-    values = for_sending.to_list()
-    str_message = ''
-
-    for i in range(len(for_sending)):
-        str_message += str(i + 1) + '. ' + keys[i] + ' - ' + str(values[i]) + '\n'
+    str_message = create_message(df['company_country'].value_counts().head(20))
 
     bot.send_message(message.chat.id, str_message)
 
@@ -244,31 +269,19 @@ def cmd_listfields(message):
 @bot.message_handler(commands=["topraiting"])
 def cmd_topraiting(message):
 
-    df = upload_stats()
     fields_list = ['company_name', 'company_raiting']
     sort_by = ['company_raiting']
-    str_message = ''
-
-    for_sending = df[fields_list].sort_values(by=sort_by, ascending=False).head(20)
-    for i in range(len(for_sending)):
-        str_message += str((i + 1)) + '. ' + for_sending.iloc[i, 0] + ' - ' + str(for_sending.iloc[i, 1]) + '\n'
+    str_message = create_message_2(fields_list, sort_by)
 
     bot.send_message(message.chat.id, str_message)
-
 
 # обработчик команды topposts: вывод списка ТОП-20 компаний по количеству публикаций
 @bot.message_handler(commands=["topposts"])
 def cmd_topposts(message):
 
-    df = upload_stats()
     fields_list = ['company_name', 'company_blog_posts']
     sort_by = ['company_blog_posts']
-    str_message = ''
-
-    for_sending = df[fields_list].sort_values(by=sort_by, ascending=False).head(20)
-
-    for i in range(len(for_sending)):
-        str_message += str((i + 1)) + '. ' + for_sending.iloc[i, 0] + ' - ' + str(for_sending.iloc[i, 1]) + '\n'
+    str_message = create_message_2(fields_list, sort_by)
 
     bot.send_message(message.chat.id, str_message)
 
@@ -276,15 +289,9 @@ def cmd_topposts(message):
 @bot.message_handler(commands=["topsubscribers"])
 def cmd_topsubscribers(message):
 
-    df = upload_stats()
     fields_list = ['company_name', 'company_subscribers']
     sort_by = ['company_subscribers']
-    str_message = ''
-
-    for_sending = df[fields_list].sort_values(by=sort_by, ascending=False).head(20)
-
-    for i in range(len(for_sending)):
-        str_message += str((i + 1)) + '. ' + for_sending.iloc[i, 0] + ' - ' + str(for_sending.iloc[i, 1]) + '\n'
+    str_message = create_message_2(fields_list, sort_by)
 
     bot.send_message(message.chat.id, str_message)
 
