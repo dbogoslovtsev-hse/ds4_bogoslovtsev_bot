@@ -4,6 +4,7 @@ import telebot
 import pandas as pd
 from tabulate import tabulate
 import dbworker
+from fuzzywuzzy import fuzz
 
 # инициируем бота
 bot = telebot.TeleBot(config.token)
@@ -93,15 +94,30 @@ def enter_company_or_rating(message):
     df = upload_stats()
 
     if company_or_rating == 'company':
-        for_sending = df[df['company_name'] == message.text.strip()]
 
-        if len(for_sending) == 1:
+        # добавляем нечеткую логику
+        fuzzy_matches = {}
+        company_names = df['company_name']
+
+        # перебираем все названия, составляем парты индекс / вероятность
+        for i in range(len(company_names)):
+            partial_ratio = fuzz.ratio(company_names.iloc[i], message.text.strip())
+            fuzzy_matches[i] = (partial_ratio, i)
+
+        # выбираем наилучшее совпадение
+        x = sorted(fuzzy_matches, key=lambda k: fuzzy_matches[k][0], reverse=True)
+        confidence, selection = fuzzy_matches[x[0]][0], x[0]
+
+        # если вероятнсть > 50%, то выводим информацию о компании
+        if confidence >= 50:
             str_message = ''
+            for_sending = df[df['company_name'] == company_names[selection]]
             header_names = for_sending.columns
 
             for i in range(len(header_names)):
                 str_message += header_names[i] + ' - ' + str(for_sending.iloc[0, i]) + '\n'
 
+            bot.send_message(message.chat.id, 'Вероятноть больше {} процентов'.format(confidence))
             bot.send_message(message.chat.id, str_message)
 
         else:
